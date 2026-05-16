@@ -64,7 +64,7 @@ const createFallbackMetadata = (url) => {
   })()
 
   return {
-    title: hostname.trim() || 'Website',
+    title: hostname || 'Website',
     description: 'Live metadata is currently unavailable for this URL.',
     logo: null,
     screenshot: null,
@@ -175,7 +175,8 @@ function App() {
         fetchJson(PAGESPEED_ENDPOINT, normalizedUrl),
       ])
 
-      let usedFallback = false
+      let metadataFallback = false
+      let metricsFallback = false
       let metadata = createFallbackMetadata(normalizedUrl)
       let metrics = createFallbackMetrics()
 
@@ -183,20 +184,20 @@ function App() {
         try {
           metadata = parseMicrolink(metaPayload)
         } catch {
-          usedFallback = true
+          metadataFallback = true
         }
       } else {
-        usedFallback = true
+        metadataFallback = true
       }
 
       if (speedPayload) {
         try {
           metrics = parsePageSpeed(speedPayload)
         } catch {
-          usedFallback = true
+          metricsFallback = true
         }
       } else {
-        usedFallback = true
+        metricsFallback = true
       }
 
       setReview({
@@ -205,8 +206,12 @@ function App() {
         metrics,
       })
 
-      if (usedFallback) {
-        setError('Some live review services are unavailable right now. Showing a best-effort result.')
+      if (metadataFallback && metricsFallback) {
+        setError('Live metadata and performance services are unavailable right now. Showing a best-effort result.')
+      } else if (metadataFallback) {
+        setError('Live metadata service is unavailable right now. Showing a best-effort result.')
+      } else if (metricsFallback) {
+        setError('Live performance metrics service is unavailable right now. Showing a best-effort result.')
       }
     } catch {
       setReview(null)
