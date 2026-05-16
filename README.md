@@ -1,5 +1,7 @@
 # Website Review Web Application
 
+The application takes a URL input from the user, fetches metadata and performance metrics from public APIs, and displays them in a modern dashboard.
+
 ## Setup commands
 
 ```bash
