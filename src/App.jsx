@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 const MICROLINK_ENDPOINT = 'https://api.microlink.io/?screenshot=true&url='
 const PAGESPEED_ENDPOINT =
   'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?category=performance&category=seo&url='
+const DEFAULT_FALLBACK_SCORE = 50
 
 const ringColorByScore = (score) => {
   if (score >= 90) return 'text-emerald-400'
@@ -72,16 +73,20 @@ const createFallbackMetadata = (url) => {
 }
 
 const createFallbackMetrics = () => ({
-  performance: 50,
-  seo: 50,
+  performance: DEFAULT_FALLBACK_SCORE,
+  seo: DEFAULT_FALLBACK_SCORE,
 })
 
 const fetchJson = async (endpoint, normalizedUrl) => {
   try {
     const response = await fetch(`${endpoint}${encodeURIComponent(normalizedUrl)}`)
-    if (!response.ok) return null
+    if (!response.ok) {
+      console.warn('Website review API request failed.', { endpoint, status: response.status })
+      return null
+    }
     return await response.json()
-  } catch {
+  } catch (error) {
+    console.warn('Website review API request error.', { endpoint, error })
     return null
   }
 }
@@ -207,7 +212,7 @@ function App() {
       })
 
       if (metadataFallback && metricsFallback) {
-        setError('Live metadata and performance services are unavailable right now. Showing a best-effort result.')
+        setError('Live metadata and performance metrics services are unavailable right now. Showing a best-effort result.')
       } else if (metadataFallback) {
         setError('Live metadata service is unavailable right now. Showing a best-effort result.')
       } else if (metricsFallback) {
