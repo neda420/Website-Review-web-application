@@ -1,2 +1,2 @@
 # Website-Review-web-application
-he application will take a URL input from the user, fetch metadata and performance metrics from public APIs, and display them in a modern dashboard.
+The application will take a URL input from the user, fetch metadata and performance metrics from public APIs, and display them in a modern dashboard.
