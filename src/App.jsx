@@ -5,6 +5,12 @@ const MICROLINK_ENDPOINT = 'https://api.microlink.io/?screenshot=true&url='
 const PAGESPEED_ENDPOINT =
   'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?category=performance&category=seo&url='
 const DEFAULT_FALLBACK_SCORE = 50
+const LIGHTHOUSE_SCORE_MULTIPLIER = 100
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
+const RETRY_BASE_DELAY_MS = 400
+const PAGESPEED_RETRY_ATTEMPTS = 2
+const PAGESPEED_REQUEST_TIMEOUT_MS = 20000
+const retryDelayMsForAttempt = (attempt) => RETRY_BASE_DELAY_MS * 2 ** attempt
 
 const ringColorByScore = (score) => {
   if (score >= 90) return 'text-emerald-400'
@@ -42,16 +48,21 @@ const parseMicrolink = (payload) => {
 
 const parsePageSpeed = (payload) => {
   const categories = payload?.lighthouseResult?.categories
-  const performance = categories?.performance?.score
-  const seo = categories?.seo?.score
+  const normalizeScore = (score) => {
+    if (typeof score !== 'number' || Number.isNaN(score)) return null
+    return Math.max(0, Math.min(100, Math.round(score * LIGHTHOUSE_SCORE_MULTIPLIER)))
+  }
 
-  if (typeof performance !== 'number' || typeof seo !== 'number') {
+  const performance = normalizeScore(categories?.performance?.score)
+  const seo = normalizeScore(categories?.seo?.score)
+
+  if (performance === null && seo === null) {
     throw new Error('Unable to fetch performance metrics right now.')
   }
 
   return {
-    performance: Math.round(performance * 100),
-    seo: Math.round(seo * 100),
+    performance: performance ?? DEFAULT_FALLBACK_SCORE,
+    seo: seo ?? DEFAULT_FALLBACK_SCORE,
   }
 }
 
@@ -77,18 +88,43 @@ const createFallbackMetrics = () => ({
   seo: DEFAULT_FALLBACK_SCORE,
 })
 
-const fetchJson = async (endpoint, normalizedUrl) => {
-  try {
-    const response = await fetch(`${endpoint}${encodeURIComponent(normalizedUrl)}`)
-    if (!response.ok) {
-      console.warn('Website review API request failed.', { endpoint, status: response.status })
+const fetchJson = async (endpoint, normalizedUrl, options = {}) => {
+  const { retries = 0, timeoutMs = 12000 } = options
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+    try {
+      const response = await fetch(`${endpoint}${encodeURIComponent(normalizedUrl)}`, { signal: controller.signal })
+      if (!response.ok) {
+        const shouldRetry = attempt < retries && RETRYABLE_STATUS_CODES.has(response.status)
+        console.warn('Website review API request failed.', {
+          endpoint,
+          status: response.status,
+          attempt: attempt + 1,
+        })
+        if (shouldRetry) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMsForAttempt(attempt)))
+          continue
+        }
+        return null
+      }
+      return await response.json()
+    } catch (error) {
+      const shouldRetry = attempt < retries
+      console.warn('Website review API request error.', { endpoint, error, attempt: attempt + 1 })
+      if (shouldRetry) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMsForAttempt(attempt)))
+        continue
+      }
       return null
+    } finally {
+      clearTimeout(timeoutId)
     }
-    return await response.json()
-  } catch (error) {
-    console.warn('Website review API request error.', { endpoint, error })
-    return null
   }
+
+  return null
 }
 
 const MetricRing = ({ label, value }) => {
@@ -177,7 +213,10 @@ function App() {
     try {
       const [metaPayload, speedPayload] = await Promise.all([
         fetchJson(MICROLINK_ENDPOINT, normalizedUrl),
-        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl),
+        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl, {
+          retries: PAGESPEED_RETRY_ATTEMPTS,
+          timeoutMs: PAGESPEED_REQUEST_TIMEOUT_MS,
+        }),
       ])
 
       let metadataFallback = false
