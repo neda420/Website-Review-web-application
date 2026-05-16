@@ -18,9 +18,12 @@ npx tailwindcss init -p
 npm run dev
 ```
 
-## Build and deploy to GitHub Pages
+## Publish with GitHub Actions
 
 ```bash
 npm run build
-npm run deploy
 ```
+
+This repository includes a GitHub Actions workflow at `.github/workflows/deploy-pages.yml` that automatically publishes the `dist` build to GitHub Pages whenever code is pushed to `main` or `master`.
+
+Before the first deployment, enable **Settings → Pages → Source: GitHub Actions** in the repository.
