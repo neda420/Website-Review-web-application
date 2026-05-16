@@ -55,10 +55,16 @@ const parsePageSpeed = (payload) => {
 }
 
 const createFallbackMetadata = (url) => {
-  const hostname = new URL(url).hostname.replace(/^www\./i, '')
+  const hostname = (() => {
+    try {
+      return new URL(url).hostname.replace(/^www\./i, '')
+    } catch {
+      return ''
+    }
+  })()
 
   return {
-    title: hostname || 'Website',
+    title: hostname.trim() || 'Website',
     description: 'Live metadata is currently unavailable for this URL.',
     logo: null,
     screenshot: null,
