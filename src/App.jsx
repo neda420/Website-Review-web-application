@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 const MICROLINK_ENDPOINT = 'https://api.microlink.io/?screenshot=true&url='
 const PAGESPEED_ENDPOINT =
   'https://www.googleapis.com/pagespeedonline/v5/runPagespeed?category=performance&category=seo&url='
+const DEFAULT_FALLBACK_SCORE = 50
 
 const ringColorByScore = (score) => {
   if (score >= 90) return 'text-emerald-400'
@@ -51,6 +52,42 @@ const parsePageSpeed = (payload) => {
   return {
     performance: Math.round(performance * 100),
     seo: Math.round(seo * 100),
+  }
+}
+
+const createFallbackMetadata = (url) => {
+  const hostname = (() => {
+    try {
+      return new URL(url).hostname.replace(/^www\./i, '')
+    } catch {
+      return ''
+    }
+  })()
+
+  return {
+    title: hostname || 'Website',
+    description: 'Live metadata is currently unavailable for this URL.',
+    logo: null,
+    screenshot: null,
+  }
+}
+
+const createFallbackMetrics = () => ({
+  performance: DEFAULT_FALLBACK_SCORE,
+  seo: DEFAULT_FALLBACK_SCORE,
+})
+
+const fetchJson = async (endpoint, normalizedUrl) => {
+  try {
+    const response = await fetch(`${endpoint}${encodeURIComponent(normalizedUrl)}`)
+    if (!response.ok) {
+      console.warn('Website review API request failed.', { endpoint, status: response.status })
+      return null
+    }
+    return await response.json()
+  } catch (error) {
+    console.warn('Website review API request error.', { endpoint, error })
+    return null
   }
 }
 
@@ -138,22 +175,49 @@ function App() {
     setLoading(true)
 
     try {
-      const [metaResponse, speedResponse] = await Promise.all([
-        fetch(`${MICROLINK_ENDPOINT}${encodeURIComponent(normalizedUrl)}`),
-        fetch(`${PAGESPEED_ENDPOINT}${encodeURIComponent(normalizedUrl)}`),
+      const [metaPayload, speedPayload] = await Promise.all([
+        fetchJson(MICROLINK_ENDPOINT, normalizedUrl),
+        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl),
       ])
 
-      if (!metaResponse.ok || !speedResponse.ok) {
-        throw new Error('One or more services are currently unavailable. Please try again.')
+      let metadataFallback = false
+      let metricsFallback = false
+      let metadata = createFallbackMetadata(normalizedUrl)
+      let metrics = createFallbackMetrics()
+
+      if (metaPayload) {
+        try {
+          metadata = parseMicrolink(metaPayload)
+        } catch {
+          metadataFallback = true
+        }
+      } else {
+        metadataFallback = true
       }
 
-      const [metaPayload, speedPayload] = await Promise.all([metaResponse.json(), speedResponse.json()])
+      if (speedPayload) {
+        try {
+          metrics = parsePageSpeed(speedPayload)
+        } catch {
+          metricsFallback = true
+        }
+      } else {
+        metricsFallback = true
+      }
 
       setReview({
         url: normalizedUrl,
-        metadata: parseMicrolink(metaPayload),
-        metrics: parsePageSpeed(speedPayload),
+        metadata,
+        metrics,
       })
+
+      if (metadataFallback && metricsFallback) {
+        setError('Live metadata and performance metrics services are unavailable right now. Showing a best-effort result.')
+      } else if (metadataFallback) {
+        setError('Live metadata service is unavailable right now. Showing a best-effort result.')
+      } else if (metricsFallback) {
+        setError('Live performance metrics service is unavailable right now. Showing a best-effort result.')
+      }
     } catch {
       setReview(null)
       setError('We could not review that website right now. Double-check the URL and try again.')
