@@ -8,6 +8,9 @@ const DEFAULT_FALLBACK_SCORE = 50
 const LIGHTHOUSE_SCORE_MULTIPLIER = 100
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504])
 const RETRY_BASE_DELAY_MS = 400
+const PAGESPEED_RETRY_ATTEMPTS = 2
+const PAGESPEED_REQUEST_TIMEOUT_MS = 20000
+const retryDelayMsForAttempt = (attempt) => RETRY_BASE_DELAY_MS * 2 ** attempt
 
 const ringColorByScore = (score) => {
   if (score >= 90) return 'text-emerald-400'
@@ -102,7 +105,7 @@ const fetchJson = async (endpoint, normalizedUrl, options = {}) => {
           attempt: attempt + 1,
         })
         if (shouldRetry) {
-          await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_DELAY_MS * (attempt + 1)))
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMsForAttempt(attempt)))
           continue
         }
         return null
@@ -112,7 +115,7 @@ const fetchJson = async (endpoint, normalizedUrl, options = {}) => {
       const shouldRetry = attempt < retries
       console.warn('Website review API request error.', { endpoint, error, attempt: attempt + 1 })
       if (shouldRetry) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_BASE_DELAY_MS * (attempt + 1)))
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMsForAttempt(attempt)))
         continue
       }
       return null
@@ -210,7 +213,10 @@ function App() {
     try {
       const [metaPayload, speedPayload] = await Promise.all([
         fetchJson(MICROLINK_ENDPOINT, normalizedUrl),
-        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl, { retries: 2, timeoutMs: 20000 }),
+        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl, {
+          retries: PAGESPEED_RETRY_ATTEMPTS,
+          timeoutMs: PAGESPEED_REQUEST_TIMEOUT_MS,
+        }),
       ])
 
       let metadataFallback = false
