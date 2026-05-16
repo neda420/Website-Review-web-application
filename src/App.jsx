@@ -54,6 +54,32 @@ const parsePageSpeed = (payload) => {
   }
 }
 
+const createFallbackMetadata = (url) => {
+  const hostname = new URL(url).hostname.replace(/^www\./i, '')
+
+  return {
+    title: hostname || 'Website',
+    description: 'Live metadata is currently unavailable for this URL.',
+    logo: null,
+    screenshot: null,
+  }
+}
+
+const createFallbackMetrics = () => ({
+  performance: 50,
+  seo: 50,
+})
+
+const fetchJson = async (endpoint, normalizedUrl) => {
+  try {
+    const response = await fetch(`${endpoint}${encodeURIComponent(normalizedUrl)}`)
+    if (!response.ok) return null
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
 const MetricRing = ({ label, value }) => {
   const radius = 54
   const strokeWidth = 10
@@ -138,22 +164,44 @@ function App() {
     setLoading(true)
 
     try {
-      const [metaResponse, speedResponse] = await Promise.all([
-        fetch(`${MICROLINK_ENDPOINT}${encodeURIComponent(normalizedUrl)}`),
-        fetch(`${PAGESPEED_ENDPOINT}${encodeURIComponent(normalizedUrl)}`),
+      const [metaPayload, speedPayload] = await Promise.all([
+        fetchJson(MICROLINK_ENDPOINT, normalizedUrl),
+        fetchJson(PAGESPEED_ENDPOINT, normalizedUrl),
       ])
 
-      if (!metaResponse.ok || !speedResponse.ok) {
-        throw new Error('One or more services are currently unavailable. Please try again.')
+      let usedFallback = false
+      let metadata = createFallbackMetadata(normalizedUrl)
+      let metrics = createFallbackMetrics()
+
+      if (metaPayload) {
+        try {
+          metadata = parseMicrolink(metaPayload)
+        } catch {
+          usedFallback = true
+        }
+      } else {
+        usedFallback = true
       }
 
-      const [metaPayload, speedPayload] = await Promise.all([metaResponse.json(), speedResponse.json()])
+      if (speedPayload) {
+        try {
+          metrics = parsePageSpeed(speedPayload)
+        } catch {
+          usedFallback = true
+        }
+      } else {
+        usedFallback = true
+      }
 
       setReview({
         url: normalizedUrl,
-        metadata: parseMicrolink(metaPayload),
-        metrics: parsePageSpeed(speedPayload),
+        metadata,
+        metrics,
       })
+
+      if (usedFallback) {
+        setError('Some live review services are unavailable right now. Showing a best-effort result.')
+      }
     } catch {
       setReview(null)
       setError('We could not review that website right now. Double-check the URL and try again.')
